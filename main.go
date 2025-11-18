@@ -176,9 +176,15 @@ func main() {
 			}
 		}
 
+		cacheConfigSpecs := []infrastructurev1alpha1.CacheConfigSpec{}
+
+		for _, ng := range location.Spec.NodeGroups {
+			cacheConfigSpecs = append(cacheConfigSpecs, ng.CacheConfig)
+		}
+
 		output := map[string]interface{}{
 			"output": map[string]interface{}{
-				"parameters": location.Spec.NodeGroups,
+				"parameters": cacheConfigSpecs,
 			},
 		}
 
