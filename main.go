@@ -182,6 +182,10 @@ func main() {
 			},
 		}
 
+		if *verbose {
+			log.Printf("Response output: %+v", output)
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(output)
 	})
