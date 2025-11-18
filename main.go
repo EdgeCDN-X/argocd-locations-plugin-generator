@@ -32,6 +32,20 @@ type RequestPayload struct {
 	} `json:"input"`
 }
 
+type ResponsePayload struct {
+	Output struct {
+		Parameters []ResponseParametersPayload `json:"parameters"`
+	}
+}
+
+type ResponseParametersPayload struct {
+	CacheName string `json:"cacheName"`
+	Path      string `json:"path"`
+	KeysZone  string `json:"keysZone"`
+	Inactive  string `json:"inactive"`
+	MaxSize   string `json:"maxSize"`
+}
+
 type ParameterTypes struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
@@ -176,15 +190,23 @@ func main() {
 			}
 		}
 
-		cacheConfigSpecs := []infrastructurev1alpha1.CacheConfigSpec{}
+		responseParams := []ResponseParametersPayload{}
 
 		for _, ng := range location.Spec.NodeGroups {
-			cacheConfigSpecs = append(cacheConfigSpecs, ng.CacheConfig)
+			responseParams = append(responseParams, ResponseParametersPayload{
+				CacheName: ng.Name,
+				Path:      ng.CacheConfig.Path,
+				KeysZone:  ng.CacheConfig.KeysZone,
+				Inactive:  ng.CacheConfig.Inactive,
+				MaxSize:   ng.CacheConfig.MaxSize,
+			})
 		}
 
-		output := map[string]interface{}{
-			"output": map[string]interface{}{
-				"parameters": cacheConfigSpecs,
+		output := &ResponsePayload{
+			Output: struct {
+				Parameters []ResponseParametersPayload `json:"parameters"`
+			}{
+				Parameters: responseParams,
 			},
 		}
 
