@@ -39,11 +39,12 @@ type ResponsePayload struct {
 }
 
 type ResponseParametersPayload struct {
-	CacheName string `json:"cacheName"`
-	Path      string `json:"path"`
-	KeysZone  string `json:"keysZone"`
-	Inactive  string `json:"inactive"`
-	MaxSize   string `json:"maxSize"`
+	CacheName    string            `json:"cacheName"`
+	Path         string            `json:"path"`
+	KeysZone     string            `json:"keysZone"`
+	Inactive     string            `json:"inactive"`
+	MaxSize      string            `json:"maxSize"`
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 }
 
 type ParameterTypes struct {
@@ -194,11 +195,12 @@ func main() {
 
 		for _, ng := range location.Spec.NodeGroups {
 			responseParams = append(responseParams, ResponseParametersPayload{
-				CacheName: ng.Name,
-				Path:      ng.CacheConfig.Path,
-				KeysZone:  ng.CacheConfig.KeysZone,
-				Inactive:  ng.CacheConfig.Inactive,
-				MaxSize:   ng.CacheConfig.MaxSize,
+				CacheName:    ng.Name,
+				Path:         ng.CacheConfig.Path,
+				KeysZone:     ng.CacheConfig.KeysZone,
+				Inactive:     ng.CacheConfig.Inactive,
+				MaxSize:      ng.CacheConfig.MaxSize,
+				NodeSelector: ng.NodeSelector,
 			})
 		}
 

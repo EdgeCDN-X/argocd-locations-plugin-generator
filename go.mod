@@ -5,7 +5,7 @@ go 1.24.4
 toolchain go1.24.10
 
 require (
-	github.com/EdgeCDN-X/edgecdnx-controller v0.9.0
+	github.com/EdgeCDN-X/edgecdnx-controller v0.10.0
 	k8s.io/apimachinery v0.34.2
 	k8s.io/client-go v0.34.2
 )

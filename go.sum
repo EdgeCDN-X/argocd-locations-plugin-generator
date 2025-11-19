@@ -1,5 +1,5 @@
-github.com/EdgeCDN-X/edgecdnx-controller v0.9.0 h1:4nmqY5shgrr/fxpiM4nUBhdnHjD1rb6PN/wHxx9B30k=
-github.com/EdgeCDN-X/edgecdnx-controller v0.9.0/go.mod h1:TYJ49yGCUgJS83tUF5+HMyiBakBkcAHuF6qHmvO6rOQ=
+github.com/EdgeCDN-X/edgecdnx-controller v0.10.0 h1:qJNKRvZEPAW50uqMRY5t0F3oqO5dg28VF6oxOE5DfIA=
+github.com/EdgeCDN-X/edgecdnx-controller v0.10.0/go.mod h1:TYJ49yGCUgJS83tUF5+HMyiBakBkcAHuF6qHmvO6rOQ=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
