@@ -228,16 +228,16 @@ func TestNewMux(t *testing.T) {
 			t.Fatalf("expected %d, got %d", http.StatusOK, rr.Code)
 		}
 
-		var got output.PluginOutput[[]DeploymentPayload]
+		var got output.ResponsePayload[[]DeploymentPayload]
 		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 			t.Fatalf("failed to parse response: %v", err)
 		}
 
-		if len(got.Parameters) != 1 {
-			t.Fatalf("expected 1 parameter, got %d", len(got.Parameters))
+		if len(got.Output.Parameters) != 1 {
+			t.Fatalf("expected 1 parameter, got %d", len(got.Output.Parameters))
 		}
 
-		param := got.Parameters[0]
+		param := got.Output.Parameters[0]
 		if param.CacheName != "ssd" {
 			t.Fatalf("expected cacheName ssd, got %q", param.CacheName)
 		}
@@ -275,17 +275,17 @@ func TestNewMux(t *testing.T) {
 			t.Fatalf("expected %d, got %d", http.StatusOK, rr.Code)
 		}
 
-		var got output.PluginOutput[[]IngressClassPayload]
+		var got output.ResponsePayload[[]IngressClassPayload]
 		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 			t.Fatalf("failed to parse response: %v", err)
 		}
 
-		if len(got.Parameters) != 1 {
-			t.Fatalf("expected 1 ingress class, got %d", len(got.Parameters))
+		if len(got.Output.Parameters) != 1 {
+			t.Fatalf("expected 1 ingress class, got %d", len(got.Output.Parameters))
 		}
 
-		if got.Parameters[0].IngressClassName != "ssd" {
-			t.Fatalf("expected ingressClassName ssd, got %q", got.Parameters[0].IngressClassName)
+		if got.Output.Parameters[0].IngressClassName != "ssd" {
+			t.Fatalf("expected ingressClassName ssd, got %q", got.Output.Parameters[0].IngressClassName)
 		}
 	})
 

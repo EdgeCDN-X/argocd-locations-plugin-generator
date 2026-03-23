@@ -191,9 +191,11 @@ func newMux(token string, verbose bool, k8sClient dynamic.Interface) *http.Serve
 				})
 			}
 
-			output := &output.PluginOutput[[]DeploymentPayload]{
+			o := &output.PluginOutput[[]DeploymentPayload]{
 				Parameters: responseParams,
 			}
+
+			output := o.BuildPluginOutput()
 
 			if verbose {
 				log.Printf("Response output: %+v", output)
@@ -217,9 +219,11 @@ func newMux(token string, verbose bool, k8sClient dynamic.Interface) *http.Serve
 				})
 			}
 
-			output := &output.PluginOutput[[]IngressClassPayload]{
+			o := &output.PluginOutput[[]IngressClassPayload]{
 				Parameters: responseParams,
 			}
+
+			output := o.BuildPluginOutput()
 
 			if verbose {
 				log.Printf("Response output: %+v", output)
