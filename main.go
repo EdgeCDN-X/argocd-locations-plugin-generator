@@ -40,7 +40,7 @@ type ResponsePayload struct {
 
 type ResponseParametersPayload struct {
 	CacheName    string            `json:"cacheName"`
-	Flavor       string            `json:"flavor,omitempty"`
+	Flavor       string            `json:"flavor"`
 	Path         string            `json:"path"`
 	KeysZone     string            `json:"keysZone"`
 	Inactive     string            `json:"inactive"`
