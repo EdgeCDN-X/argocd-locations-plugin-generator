@@ -62,6 +62,20 @@ func newFakeK8sClient(t *testing.T) dynamic.Interface {
 	return dynamicfake.NewSimpleDynamicClient(scheme, &unstructured.Unstructured{Object: obj})
 }
 
+func newEmptyFakeK8sClient(t *testing.T) dynamic.Interface {
+	t.Helper()
+
+	scheme := kruntime.NewScheme()
+	if err := clientsetscheme.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add client-go scheme: %v", err)
+	}
+	if err := infrastructurev1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add infrastructure scheme: %v", err)
+	}
+
+	return dynamicfake.NewSimpleDynamicClient(scheme)
+}
+
 func TestGetEnvOrDefault(t *testing.T) {
 	const key = "TEST_ENV_OR_DEFAULT"
 	_ = os.Unsetenv(key)
@@ -164,28 +178,38 @@ func TestNewMux(t *testing.T) {
 		}
 	})
 
-	t.Run("returns empty parameters when kubernetes client is unavailable", func(t *testing.T) {
+	t.Run("returns error when kubernetes client is unavailable", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/getparams.execute", strings.NewReader(`{"input":{"parameters":{"namespace":"argocd","name":"fra1-c1"}}}`))
 		req.Header.Set("Authorization", "Bearer secret-token")
 		rr := httptest.NewRecorder()
 
 		mux.ServeHTTP(rr, req)
 
-		if rr.Code != http.StatusOK {
-			t.Fatalf("expected %d, got %d", http.StatusOK, rr.Code)
+		if rr.Code != http.StatusServiceUnavailable {
+			t.Fatalf("expected %d, got %d", http.StatusServiceUnavailable, rr.Code)
 		}
 
-		if ct := rr.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
-			t.Fatalf("expected application/json content type, got %q", ct)
+		if !strings.Contains(rr.Body.String(), "kubernetes apiserver unavailable") {
+			t.Fatalf("expected apiserver unavailable error, got %q", rr.Body.String())
+		}
+	})
+
+	t.Run("returns error when location lookup fails", func(t *testing.T) {
+		fakeClient := newEmptyFakeK8sClient(t)
+		fakeMux := newMux("secret-token", false, fakeClient)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/getparams.execute", strings.NewReader(`{"input":{"parameters":{"namespace":"argocd","name":"fra1-c1"}}}`))
+		req.Header.Set("Authorization", "Bearer secret-token")
+		rr := httptest.NewRecorder()
+
+		fakeMux.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusServiceUnavailable {
+			t.Fatalf("expected %d, got %d", http.StatusServiceUnavailable, rr.Code)
 		}
 
-		var got ResponsePayload
-		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
-			t.Fatalf("failed to parse response: %v", err)
-		}
-
-		if len(got.Output.Parameters) != 0 {
-			t.Fatalf("expected empty parameters, got %d entries", len(got.Output.Parameters))
+		if !strings.Contains(rr.Body.String(), "kubernetes apiserver unavailable") {
+			t.Fatalf("expected apiserver unavailable error, got %q", rr.Body.String())
 		}
 	})
 

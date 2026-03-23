@@ -158,16 +158,20 @@ func newMux(token string, verbose bool, k8sClient dynamic.Interface) *http.Serve
 
 		log.Printf("Received request for Location: namespace=%s, name=%s", inputParams.Namespace, inputParams.Name)
 
-		// Get Locations from Kubernetes if client is available
+		if k8sClient == nil {
+			http.Error(w, "kubernetes apiserver unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		// Get Location from Kubernetes
 		location := &infrastructurev1alpha1.Location{}
-		if k8sClient != nil {
-			var err error
-			err = getLocation(k8sClient, inputParams.Namespace, inputParams.Name, location)
-			if err != nil {
-				log.Printf("Warning: Failed to get Location: %v", err)
-			} else if verbose {
-				log.Printf("Successfully retrieved Location: %s", location.Name)
-			}
+		locationErr := getLocation(k8sClient, inputParams.Namespace, inputParams.Name, location)
+		if locationErr != nil {
+			log.Printf("Warning: Failed to get Location: %v", locationErr)
+			http.Error(w, "kubernetes apiserver unavailable", http.StatusServiceUnavailable)
+			return
+		} else if verbose {
+			log.Printf("Successfully retrieved Location: %s", location.Name)
 		}
 
 		responseParams := []ResponseParametersPayload{}
