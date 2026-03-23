@@ -40,6 +40,7 @@ type ResponsePayload struct {
 
 type ResponseParametersPayload struct {
 	CacheName    string            `json:"cacheName"`
+	Flavor       string            `json:"flavor,omitempty"`
 	Path         string            `json:"path"`
 	KeysZone     string            `json:"keysZone"`
 	Inactive     string            `json:"inactive"`
@@ -99,7 +100,7 @@ func createKubernetesClient() (dynamic.Interface, error) {
 // getLocation reads a single Location CRD from Kubernetes
 func getLocation(client dynamic.Interface, namespace string, name string, location *infrastructurev1alpha1.Location) error {
 	ctx := context.Background()
-	unstructuredObj, err := client.Resource(infrastructurev1alpha1.GroupVersion.WithResource("locations")).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+	unstructuredObj, err := client.Resource(infrastructurev1alpha1.SchemeGroupVersion.WithResource("locations")).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
@@ -196,6 +197,7 @@ func main() {
 		for _, ng := range location.Spec.NodeGroups {
 			responseParams = append(responseParams, ResponseParametersPayload{
 				CacheName:    ng.Name,
+				Flavor:       ng.Flavor,
 				Path:         ng.CacheConfig.Path,
 				KeysZone:     ng.CacheConfig.KeysZone,
 				Inactive:     ng.CacheConfig.Inactive,
