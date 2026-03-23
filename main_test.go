@@ -289,7 +289,7 @@ func TestNewMux(t *testing.T) {
 		}
 	})
 
-	t.Run("returns empty body for unsupported resource type", func(t *testing.T) {
+	t.Run("returns bad request for unsupported resource type", func(t *testing.T) {
 		fakeClient := newFakeK8sClient(t)
 		fakeMux := newMux("secret-token", false, fakeClient)
 
@@ -299,12 +299,12 @@ func TestNewMux(t *testing.T) {
 
 		fakeMux.ServeHTTP(rr, req)
 
-		if rr.Code != http.StatusOK {
-			t.Fatalf("expected %d, got %d", http.StatusOK, rr.Code)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("expected %d, got %d", http.StatusBadRequest, rr.Code)
 		}
 
-		if rr.Body.Len() != 0 {
-			t.Fatalf("expected empty body for unsupported resource type, got %q", rr.Body.String())
+		if !strings.Contains(rr.Body.String(), "unsupported resource type") {
+			t.Fatalf("expected unsupported resource type error, got %q", rr.Body.String())
 		}
 	})
 }

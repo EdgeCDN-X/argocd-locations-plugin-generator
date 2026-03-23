@@ -209,7 +209,7 @@ func newMux(token string, verbose bool, k8sClient dynamic.Interface) *http.Serve
 			responseParams := []IngressClassPayload{}
 
 			for _, ng := range location.Spec.NodeGroups {
-				if slices.ContainsFunc[[]IngressClassPayload](responseParams, func(icp IngressClassPayload) bool { return icp.IngressClassName == ng.Name }) {
+				if slices.ContainsFunc(responseParams, func(icp IngressClassPayload) bool { return icp.IngressClassName == ng.Name }) {
 					continue
 				}
 				responseParams = append(responseParams, IngressClassPayload{
