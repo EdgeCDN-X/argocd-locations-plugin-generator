@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/EdgeCDN-X/argocd-locations-plugin-generator/output"
 	infrastructurev1alpha1 "github.com/EdgeCDN-X/edgecdnx-controller/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -227,16 +228,16 @@ func TestNewMux(t *testing.T) {
 			t.Fatalf("expected %d, got %d", http.StatusOK, rr.Code)
 		}
 
-		var got ResponsePayload
+		var got output.PluginOutput[[]DeploymentPayload]
 		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 			t.Fatalf("failed to parse response: %v", err)
 		}
 
-		if len(got.Output.Parameters) != 1 {
-			t.Fatalf("expected 1 parameter, got %d", len(got.Output.Parameters))
+		if len(got.Parameters) != 1 {
+			t.Fatalf("expected 1 parameter, got %d", len(got.Parameters))
 		}
 
-		param := got.Output.Parameters[0]
+		param := got.Parameters[0]
 		if param.CacheName != "ssd" {
 			t.Fatalf("expected cacheName ssd, got %q", param.CacheName)
 		}
@@ -257,6 +258,53 @@ func TestNewMux(t *testing.T) {
 		}
 		if gotRegion := param.NodeSelector["region"]; gotRegion != "fra1" {
 			t.Fatalf("expected nodeSelector.region fra1, got %q", gotRegion)
+		}
+	})
+
+	t.Run("returns ingress classes when resource is IngressClass", func(t *testing.T) {
+		fakeClient := newFakeK8sClient(t)
+		fakeMux := newMux("secret-token", false, fakeClient)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/getparams.execute", strings.NewReader(`{"input":{"parameters":{"namespace":"argocd","name":"fra1-c1","resource":"IngressClass"}}}`))
+		req.Header.Set("Authorization", "Bearer secret-token")
+		rr := httptest.NewRecorder()
+
+		fakeMux.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected %d, got %d", http.StatusOK, rr.Code)
+		}
+
+		var got output.PluginOutput[[]IngressClassPayload]
+		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if len(got.Parameters) != 1 {
+			t.Fatalf("expected 1 ingress class, got %d", len(got.Parameters))
+		}
+
+		if got.Parameters[0].IngressClassName != "ssd" {
+			t.Fatalf("expected ingressClassName ssd, got %q", got.Parameters[0].IngressClassName)
+		}
+	})
+
+	t.Run("returns empty body for unsupported resource type", func(t *testing.T) {
+		fakeClient := newFakeK8sClient(t)
+		fakeMux := newMux("secret-token", false, fakeClient)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/getparams.execute", strings.NewReader(`{"input":{"parameters":{"namespace":"argocd","name":"fra1-c1","resource":"Service"}}}`))
+		req.Header.Set("Authorization", "Bearer secret-token")
+		rr := httptest.NewRecorder()
+
+		fakeMux.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected %d, got %d", http.StatusOK, rr.Code)
+		}
+
+		if rr.Body.Len() != 0 {
+			t.Fatalf("expected empty body for unsupported resource type, got %q", rr.Body.String())
 		}
 	})
 }

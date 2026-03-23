@@ -13,9 +13,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/EdgeCDN-X/argocd-locations-plugin-generator/output"
 	infrastructurev1alpha1 "github.com/EdgeCDN-X/edgecdnx-controller/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kruntime "k8s.io/apimachinery/pkg/runtime"
@@ -32,13 +34,7 @@ type RequestPayload struct {
 	} `json:"input"`
 }
 
-type ResponsePayload struct {
-	Output struct {
-		Parameters []ResponseParametersPayload `json:"parameters"`
-	}
-}
-
-type ResponseParametersPayload struct {
+type DeploymentPayload struct {
 	CacheName    string            `json:"cacheName"`
 	Flavor       string            `json:"flavor"`
 	Path         string            `json:"path"`
@@ -48,9 +44,14 @@ type ResponseParametersPayload struct {
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 }
 
+type IngressClassPayload struct {
+	IngressClassName string `json:"ingressClassName"`
+}
+
 type ParameterTypes struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
+	Resource  string `json:"resource"`
 }
 
 // getEnvOrDefault returns the value of an environment variable or a default value
@@ -174,34 +175,63 @@ func newMux(token string, verbose bool, k8sClient dynamic.Interface) *http.Serve
 			log.Printf("Successfully retrieved Location: %s", location.Name)
 		}
 
-		responseParams := []ResponseParametersPayload{}
+		if reqData.Input.Parameters.Resource == "" {
 
-		for _, ng := range location.Spec.NodeGroups {
-			responseParams = append(responseParams, ResponseParametersPayload{
-				CacheName:    ng.Name,
-				Flavor:       ng.Flavor,
-				Path:         ng.CacheConfig.Path,
-				KeysZone:     ng.CacheConfig.KeysZone,
-				Inactive:     ng.CacheConfig.Inactive,
-				MaxSize:      ng.CacheConfig.MaxSize,
-				NodeSelector: ng.NodeSelector,
-			})
-		}
+			responseParams := []DeploymentPayload{}
 
-		output := &ResponsePayload{
-			Output: struct {
-				Parameters []ResponseParametersPayload `json:"parameters"`
-			}{
+			for _, ng := range location.Spec.NodeGroups {
+				responseParams = append(responseParams, DeploymentPayload{
+					CacheName:    ng.Name,
+					Flavor:       ng.Flavor,
+					Path:         ng.CacheConfig.Path,
+					KeysZone:     ng.CacheConfig.KeysZone,
+					Inactive:     ng.CacheConfig.Inactive,
+					MaxSize:      ng.CacheConfig.MaxSize,
+					NodeSelector: ng.NodeSelector,
+				})
+			}
+
+			output := &output.PluginOutput[[]DeploymentPayload]{
 				Parameters: responseParams,
-			},
+			}
+
+			if verbose {
+				log.Printf("Response output: %+v", output)
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(output)
+			return
 		}
 
-		if verbose {
-			log.Printf("Response output: %+v", output)
+		if reqData.Input.Parameters.Resource == "IngressClass" {
+
+			responseParams := []IngressClassPayload{}
+
+			for _, ng := range location.Spec.NodeGroups {
+				if slices.ContainsFunc[[]IngressClassPayload](responseParams, func(icp IngressClassPayload) bool { return icp.IngressClassName == ng.Name }) {
+					continue
+				}
+				responseParams = append(responseParams, IngressClassPayload{
+					IngressClassName: ng.Name,
+				})
+			}
+
+			output := &output.PluginOutput[[]IngressClassPayload]{
+				Parameters: responseParams,
+			}
+
+			if verbose {
+				log.Printf("Response output: %+v", output)
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(output)
+			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(output)
+		http.Error(w, "unsupported resource type", http.StatusBadRequest)
+		return
 	})
 
 	return mux
