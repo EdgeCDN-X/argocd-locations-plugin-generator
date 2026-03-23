@@ -112,30 +112,8 @@ func getLocation(client dynamic.Interface, namespace string, name string, locati
 	return err
 }
 
-func main() {
-	// Define command-line flags with defaults from environment variables
-	var (
-		port    = flag.String("port", getEnvOrDefault("PORT", "8080"), "Port to run the server on (env: PORT)")
-		token   = flag.String("token", getEnvOrDefault("TOKEN", "randtoken"), "Argo token (env: TOKEN)")
-		verbose = flag.Bool("verbose", getEnvBoolOrDefault("VERBOSE", false), "Enable verbose logging (env: VERBOSE)")
-	)
-	flag.Parse()
-
-	if *verbose {
-		log.Println("Verbose logging enabled")
-		log.Printf("Server configuration: port=%s, token=%s", *port, *token)
-		log.Printf("Environment variables: PORT=%s, TOKEN=%s, VERBOSE=%s", os.Getenv("PORT"), os.Getenv("TOKEN"), os.Getenv("VERBOSE"))
-	}
-
-	// Create Kubernetes client
-	k8sClient, err := createKubernetesClient()
-	if err != nil {
-		log.Printf("Warning: Failed to create Kubernetes client: %v", err)
-		log.Println("Locations CRD data will not be available")
-	} else if *verbose {
-		log.Println("Kubernetes client created successfully")
-	}
-
+// newMux builds the API routes and returns an HTTP mux.
+func newMux(token string, verbose bool, k8sClient dynamic.Interface) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/api/v1/getparams.execute", func(w http.ResponseWriter, r *http.Request) {
@@ -147,15 +125,15 @@ func main() {
 
 		// Check Authorization header
 		authHeader := r.Header.Get("Authorization")
-		if !strings.HasPrefix(authHeader, "Bearer ") || strings.TrimPrefix(authHeader, "Bearer ") != *token {
-			if *verbose {
+		if !strings.HasPrefix(authHeader, "Bearer ") || strings.TrimPrefix(authHeader, "Bearer ") != token {
+			if verbose {
 				log.Printf("Authorization failed for request to %s", r.URL.Path)
 			}
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 
-		if *verbose {
+		if verbose {
 			log.Printf("Authorized request to %s", r.URL.Path)
 		}
 
@@ -187,7 +165,7 @@ func main() {
 			err = getLocation(k8sClient, inputParams.Namespace, inputParams.Name, location)
 			if err != nil {
 				log.Printf("Warning: Failed to get Location: %v", err)
-			} else if *verbose {
+			} else if verbose {
 				log.Printf("Successfully retrieved Location: %s", location.Name)
 			}
 		}
@@ -214,13 +192,42 @@ func main() {
 			},
 		}
 
-		if *verbose {
+		if verbose {
 			log.Printf("Response output: %+v", output)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(output)
 	})
+
+	return mux
+}
+
+func main() {
+	// Define command-line flags with defaults from environment variables
+	var (
+		port    = flag.String("port", getEnvOrDefault("PORT", "8080"), "Port to run the server on (env: PORT)")
+		token   = flag.String("token", getEnvOrDefault("TOKEN", "randtoken"), "Argo token (env: TOKEN)")
+		verbose = flag.Bool("verbose", getEnvBoolOrDefault("VERBOSE", false), "Enable verbose logging (env: VERBOSE)")
+	)
+	flag.Parse()
+
+	if *verbose {
+		log.Println("Verbose logging enabled")
+		log.Printf("Server configuration: port=%s, token=%s", *port, *token)
+		log.Printf("Environment variables: PORT=%s, TOKEN=%s, VERBOSE=%s", os.Getenv("PORT"), os.Getenv("TOKEN"), os.Getenv("VERBOSE"))
+	}
+
+	// Create Kubernetes client
+	k8sClient, err := createKubernetesClient()
+	if err != nil {
+		log.Printf("Warning: Failed to create Kubernetes client: %v", err)
+		log.Println("Locations CRD data will not be available")
+	} else if *verbose {
+		log.Println("Kubernetes client created successfully")
+	}
+
+	mux := newMux(*token, *verbose, k8sClient)
 
 	serverAddr := fmt.Sprintf(":%s", *port)
 	log.Printf("Server running on %s", serverAddr)
