@@ -48,10 +48,78 @@ type IngressClassPayload struct {
 	IngressClassName string `json:"ingressClassName"`
 }
 
+type ProbePayload struct {
+	NodeGroupName string `json:"nodegroupName"`
+	Flavor        string `json:"flavor,omitempty"`
+	NodeName      string `json:"nodeName"`
+	Address       string `json:"address"`
+}
+
 type ParameterTypes struct {
 	Name      string `json:"name"`
 	Namespace string `json:"namespace"`
 	Resource  string `json:"resource"`
+}
+
+func buildDeploymentPayloads(location *infrastructurev1alpha1.Location) []DeploymentPayload {
+	responseParams := make([]DeploymentPayload, 0, len(location.Spec.NodeGroups))
+
+	for _, ng := range location.Spec.NodeGroups {
+		responseParams = append(responseParams, DeploymentPayload{
+			CacheName:    ng.Name,
+			Flavor:       ng.Flavor,
+			Path:         ng.CacheConfig.Path,
+			KeysZone:     ng.CacheConfig.KeysZone,
+			Inactive:     ng.CacheConfig.Inactive,
+			MaxSize:      ng.CacheConfig.MaxSize,
+			NodeSelector: ng.NodeSelector,
+		})
+	}
+
+	return responseParams
+}
+
+func buildIngressClassPayloads(location *infrastructurev1alpha1.Location) []IngressClassPayload {
+	responseParams := []IngressClassPayload{}
+
+	for _, ng := range location.Spec.NodeGroups {
+		if slices.ContainsFunc(responseParams, func(icp IngressClassPayload) bool { return icp.IngressClassName == ng.Name }) {
+			continue
+		}
+		responseParams = append(responseParams, IngressClassPayload{
+			IngressClassName: ng.Name,
+		})
+	}
+
+	return responseParams
+}
+
+func buildProbePayloads(location *infrastructurev1alpha1.Location) []ProbePayload {
+	responseParams := []ProbePayload{}
+
+	for _, ng := range location.Spec.NodeGroups {
+		for _, node := range ng.Nodes {
+			if node.Ipv4 != "" {
+				responseParams = append(responseParams, ProbePayload{
+					NodeGroupName: ng.Name,
+					Flavor:        ng.Flavor,
+					NodeName:      node.Name,
+					Address:       node.Ipv4 + "/healthz",
+				})
+			}
+
+			if node.Ipv6 != "" {
+				responseParams = append(responseParams, ProbePayload{
+					NodeGroupName: ng.Name,
+					Flavor:        ng.Flavor,
+					NodeName:      node.Name,
+					Address:       node.Ipv6 + "/healthz",
+				})
+			}
+		}
+	}
+
+	return responseParams
 }
 
 // getEnvOrDefault returns the value of an environment variable or a default value
@@ -72,27 +140,52 @@ func getEnvBoolOrDefault(key string, defaultValue bool) bool {
 	return defaultValue
 }
 
+func loadKubernetesConfig(loadInCluster func() (*rest.Config, error), loadFromKubeconfig func() (*rest.Config, error)) (*rest.Config, error) {
+	if os.Getenv(clientcmd.RecommendedConfigPathEnvVar) != "" {
+		config, err := loadFromKubeconfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Kubernetes config from %s: %w", clientcmd.RecommendedConfigPathEnvVar, err)
+		}
+		return config, nil
+	}
+
+	config, err := loadInCluster()
+	if err == nil {
+		return config, nil
+	}
+
+	config, err = loadFromKubeconfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Kubernetes config: %w", err)
+	}
+
+	return config, nil
+}
+
 // createKubernetesClient creates a Kubernetes dynamic client
 func createKubernetesClient() (dynamic.Interface, error) {
 	scheme := kruntime.NewScheme()
 	clientsetscheme.AddToScheme(scheme)
 	infrastructurev1alpha1.AddToScheme(scheme)
 
-	var config *rest.Config
-	var err error
-
-	// Try in-cluster config first (when running in a pod)
-	if config, err = rest.InClusterConfig(); err != nil {
-		// Fall back to kubeconfig file
-		kubeconfig := filepath.Join(homedir.HomeDir(), ".kube", "config")
-		if config, err = clientcmd.BuildConfigFromFlags("", kubeconfig); err != nil {
-			return nil, fmt.Errorf("failed to create Kubernetes config: %v", err)
+	config, err := loadKubernetesConfig(rest.InClusterConfig, func() (*rest.Config, error) {
+		if os.Getenv(clientcmd.RecommendedConfigPathEnvVar) != "" {
+			return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+				clientcmd.NewDefaultClientConfigLoadingRules(),
+				&clientcmd.ConfigOverrides{},
+			).ClientConfig()
 		}
+
+		kubeconfig := filepath.Join(homedir.HomeDir(), ".kube", "config")
+		return clientcmd.BuildConfigFromFlags("", kubeconfig)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	client, err := dynamic.NewForConfig(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Kubernetes client: %v", err)
+		return nil, fmt.Errorf("failed to create Kubernetes client: %w", err)
 	}
 
 	return client, nil
@@ -177,19 +270,7 @@ func newMux(token string, verbose bool, k8sClient dynamic.Interface) *http.Serve
 
 		if reqData.Input.Parameters.Resource == "" {
 
-			responseParams := []DeploymentPayload{}
-
-			for _, ng := range location.Spec.NodeGroups {
-				responseParams = append(responseParams, DeploymentPayload{
-					CacheName:    ng.Name,
-					Flavor:       ng.Flavor,
-					Path:         ng.CacheConfig.Path,
-					KeysZone:     ng.CacheConfig.KeysZone,
-					Inactive:     ng.CacheConfig.Inactive,
-					MaxSize:      ng.CacheConfig.MaxSize,
-					NodeSelector: ng.NodeSelector,
-				})
-			}
+			responseParams := buildDeploymentPayloads(location)
 
 			o := &output.PluginOutput[[]DeploymentPayload]{
 				Parameters: responseParams,
@@ -208,18 +289,28 @@ func newMux(token string, verbose bool, k8sClient dynamic.Interface) *http.Serve
 
 		if reqData.Input.Parameters.Resource == "IngressClass" {
 
-			responseParams := []IngressClassPayload{}
-
-			for _, ng := range location.Spec.NodeGroups {
-				if slices.ContainsFunc(responseParams, func(icp IngressClassPayload) bool { return icp.IngressClassName == ng.Name }) {
-					continue
-				}
-				responseParams = append(responseParams, IngressClassPayload{
-					IngressClassName: ng.Name,
-				})
-			}
+			responseParams := buildIngressClassPayloads(location)
 
 			o := &output.PluginOutput[[]IngressClassPayload]{
+				Parameters: responseParams,
+			}
+
+			output := o.BuildPluginOutput()
+
+			if verbose {
+				log.Printf("Response output: %+v", output)
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(output)
+			return
+		}
+
+		if reqData.Input.Parameters.Resource == "Probe" {
+
+			responseParams := buildProbePayloads(location)
+
+			o := &output.PluginOutput[[]ProbePayload]{
 				Parameters: responseParams,
 			}
 

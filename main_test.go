@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +17,8 @@ import (
 	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	clientsetscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 func newFakeK8sClient(t *testing.T) dynamic.Interface {
@@ -43,6 +46,13 @@ func newFakeK8sClient(t *testing.T) dynamic.Interface {
 				{
 					Name:   "ssd",
 					Flavor: "cache",
+					Nodes: []infrastructurev1alpha1.NodeSpec{
+						{
+							Name: "fra1-c1-n1",
+							Ipv4: "74.220.29.158",
+							Ipv6: "2600:3c03::f03c:95ff:fe00:1",
+						},
+					},
 					CacheConfig: infrastructurev1alpha1.CacheConfigSpec{
 						Path:     "/var/cache/ssd",
 						KeysZone: "100m",
@@ -50,6 +60,23 @@ func newFakeK8sClient(t *testing.T) dynamic.Interface {
 						MaxSize:  "4096m",
 					},
 					NodeSelector: map[string]string{"region": "fra1"},
+				},
+				{
+					Name:   "nvme",
+					Flavor: "cache",
+					Nodes: []infrastructurev1alpha1.NodeSpec{
+						{
+							Name: "fra1-c1-n2",
+							Ipv4: "74.220.29.159",
+						},
+					},
+					CacheConfig: infrastructurev1alpha1.CacheConfigSpec{
+						Path:     "/var/cache/nvme",
+						KeysZone: "200m",
+						Inactive: "20160m",
+						MaxSize:  "8192m",
+					},
+					NodeSelector: map[string]string{"region": "fra1", "disk": "nvme"},
 				},
 			},
 		},
@@ -124,6 +151,99 @@ func TestGetEnvBoolOrDefault(t *testing.T) {
 
 		if got := getEnvBoolOrDefault(key, true); got != true {
 			t.Fatalf("expected default true for invalid bool, got %v", got)
+		}
+	})
+}
+
+func TestLoadKubernetesConfig(t *testing.T) {
+	t.Run("prefers KUBECONFIG over in-cluster config", func(t *testing.T) {
+		if err := os.Setenv(clientcmd.RecommendedConfigPathEnvVar, "/tmp/test-kubeconfig"); err != nil {
+			t.Fatalf("failed to set env: %v", err)
+		}
+		t.Cleanup(func() { _ = os.Unsetenv(clientcmd.RecommendedConfigPathEnvVar) })
+
+		var inClusterCalls int
+		var kubeconfigCalls int
+
+		config, err := loadKubernetesConfig(
+			func() (*rest.Config, error) {
+				inClusterCalls++
+				return &rest.Config{Host: "https://in-cluster"}, nil
+			},
+			func() (*rest.Config, error) {
+				kubeconfigCalls++
+				return &rest.Config{Host: "https://from-env"}, nil
+			},
+		)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if config.Host != "https://from-env" {
+			t.Fatalf("expected kubeconfig host, got %q", config.Host)
+		}
+		if inClusterCalls != 0 {
+			t.Fatalf("expected in-cluster loader to be skipped, got %d calls", inClusterCalls)
+		}
+		if kubeconfigCalls != 1 {
+			t.Fatalf("expected kubeconfig loader to be called once, got %d", kubeconfigCalls)
+		}
+	})
+
+	t.Run("falls back to kubeconfig when in-cluster fails", func(t *testing.T) {
+		_ = os.Unsetenv(clientcmd.RecommendedConfigPathEnvVar)
+
+		var inClusterCalls int
+		var kubeconfigCalls int
+
+		config, err := loadKubernetesConfig(
+			func() (*rest.Config, error) {
+				inClusterCalls++
+				return nil, fmt.Errorf("not running in cluster")
+			},
+			func() (*rest.Config, error) {
+				kubeconfigCalls++
+				return &rest.Config{Host: "https://from-home"}, nil
+			},
+		)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if config.Host != "https://from-home" {
+			t.Fatalf("expected fallback kubeconfig host, got %q", config.Host)
+		}
+		if inClusterCalls != 1 {
+			t.Fatalf("expected in-cluster loader once, got %d", inClusterCalls)
+		}
+		if kubeconfigCalls != 1 {
+			t.Fatalf("expected kubeconfig loader once, got %d", kubeconfigCalls)
+		}
+	})
+
+	t.Run("returns KUBECONFIG error without trying in-cluster", func(t *testing.T) {
+		if err := os.Setenv(clientcmd.RecommendedConfigPathEnvVar, "/tmp/test-kubeconfig"); err != nil {
+			t.Fatalf("failed to set env: %v", err)
+		}
+		t.Cleanup(func() { _ = os.Unsetenv(clientcmd.RecommendedConfigPathEnvVar) })
+
+		var inClusterCalls int
+
+		_, err := loadKubernetesConfig(
+			func() (*rest.Config, error) {
+				inClusterCalls++
+				return &rest.Config{Host: "https://in-cluster"}, nil
+			},
+			func() (*rest.Config, error) {
+				return nil, fmt.Errorf("invalid kubeconfig")
+			},
+		)
+		if err == nil {
+			t.Fatal("expected an error")
+		}
+		if !strings.Contains(err.Error(), clientcmd.RecommendedConfigPathEnvVar) {
+			t.Fatalf("expected error to mention %s, got %q", clientcmd.RecommendedConfigPathEnvVar, err)
+		}
+		if inClusterCalls != 0 {
+			t.Fatalf("expected in-cluster loader to be skipped, got %d calls", inClusterCalls)
 		}
 	})
 }
@@ -233,8 +353,8 @@ func TestNewMux(t *testing.T) {
 			t.Fatalf("failed to parse response: %v", err)
 		}
 
-		if len(got.Output.Parameters) != 1 {
-			t.Fatalf("expected 1 parameter, got %d", len(got.Output.Parameters))
+		if len(got.Output.Parameters) != 2 {
+			t.Fatalf("expected 2 parameters, got %d", len(got.Output.Parameters))
 		}
 
 		param := got.Output.Parameters[0]
@@ -259,6 +379,14 @@ func TestNewMux(t *testing.T) {
 		if gotRegion := param.NodeSelector["region"]; gotRegion != "fra1" {
 			t.Fatalf("expected nodeSelector.region fra1, got %q", gotRegion)
 		}
+
+		secondParam := got.Output.Parameters[1]
+		if secondParam.CacheName != "nvme" {
+			t.Fatalf("expected cacheName nvme, got %q", secondParam.CacheName)
+		}
+		if secondParam.Path != "/var/cache/nvme" {
+			t.Fatalf("expected path /var/cache/nvme, got %q", secondParam.Path)
+		}
 	})
 
 	t.Run("returns ingress classes when resource is IngressClass", func(t *testing.T) {
@@ -280,12 +408,51 @@ func TestNewMux(t *testing.T) {
 			t.Fatalf("failed to parse response: %v", err)
 		}
 
-		if len(got.Output.Parameters) != 1 {
-			t.Fatalf("expected 1 ingress class, got %d", len(got.Output.Parameters))
+		if len(got.Output.Parameters) != 2 {
+			t.Fatalf("expected 2 ingress classes, got %d", len(got.Output.Parameters))
 		}
 
 		if got.Output.Parameters[0].IngressClassName != "ssd" {
 			t.Fatalf("expected ingressClassName ssd, got %q", got.Output.Parameters[0].IngressClassName)
+		}
+		if got.Output.Parameters[1].IngressClassName != "nvme" {
+			t.Fatalf("expected ingressClassName nvme, got %q", got.Output.Parameters[1].IngressClassName)
+		}
+	})
+
+	t.Run("returns probe configurations when resource is Probe", func(t *testing.T) {
+		fakeClient := newFakeK8sClient(t)
+		fakeMux := newMux("secret-token", false, fakeClient)
+
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/getparams.execute", strings.NewReader(`{"input":{"parameters":{"namespace":"argocd","name":"fra1-c1","resource":"Probe"}}}`))
+		req.Header.Set("Authorization", "Bearer secret-token")
+		rr := httptest.NewRecorder()
+
+		fakeMux.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected %d, got %d", http.StatusOK, rr.Code)
+		}
+
+		var got output.ResponsePayload[[]ProbePayload]
+		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if len(got.Output.Parameters) != 3 {
+			t.Fatalf("expected 3 probe configs, got %d", len(got.Output.Parameters))
+		}
+
+		expected := []ProbePayload{
+			{NodeGroupName: "ssd", Flavor: "cache", NodeName: "fra1-c1-n1", Address: "74.220.29.158/healthz"},
+			{NodeGroupName: "ssd", Flavor: "cache", NodeName: "fra1-c1-n1", Address: "2600:3c03::f03c:95ff:fe00:1/healthz"},
+			{NodeGroupName: "nvme", Flavor: "cache", NodeName: "fra1-c1-n2", Address: "74.220.29.159/healthz"},
+		}
+
+		for index, want := range expected {
+			if got.Output.Parameters[index] != want {
+				t.Fatalf("unexpected probe payload at index %d: got %+v want %+v", index, got.Output.Parameters[index], want)
+			}
 		}
 	})
 
