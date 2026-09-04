@@ -70,11 +70,11 @@ func newFakeK8sClient(t *testing.T) dynamic.Interface {
 							Ipv4: "74.220.29.159",
 						},
 					},
-					CacheConfig: infrastructurev1alpha1.CacheConfigSpec{
-						Path:     "/var/cache/nvme",
-						KeysZone: "200m",
-						Inactive: "20160m",
-						MaxSize:  "8192m",
+					Metadata: map[string]string{
+						"path":     "/var/cache/nvme",
+						"keysZone": "200m",
+						"inactive": "20160m",
+						"maxSize":  "8192m",
 					},
 					NodeSelector: map[string]string{"region": "fra1", "disk": "nvme"},
 				},
@@ -364,17 +364,29 @@ func TestNewMux(t *testing.T) {
 		if param.Flavor != "cache" {
 			t.Fatalf("expected flavor cache, got %q", param.Flavor)
 		}
+		if param.Metadata["path"] != "/var/cache/ssd" {
+			t.Fatalf("expected path /var/cache/ssd, got %q", param.Metadata["path"])
+		}
+		if param.Metadata["keysZone"] != "100m" {
+			t.Fatalf("expected keysZone 100m, got %q", param.Metadata["keysZone"])
+		}
+		if param.Metadata["inactive"] != "10080m" {
+			t.Fatalf("expected inactive 10080m, got %q", param.Metadata["inactive"])
+		}
+		if param.Metadata["maxSize"] != "4096m" {
+			t.Fatalf("expected maxSize 4096m, got %q", param.Metadata["maxSize"])
+		}
 		if param.Path != "/var/cache/ssd" {
-			t.Fatalf("expected path /var/cache/ssd, got %q", param.Path)
+			t.Fatalf("expected legacy path /var/cache/ssd, got %q", param.Path)
 		}
 		if param.KeysZone != "100m" {
-			t.Fatalf("expected keysZone 100m, got %q", param.KeysZone)
+			t.Fatalf("expected legacy keysZone 100m, got %q", param.KeysZone)
 		}
 		if param.Inactive != "10080m" {
-			t.Fatalf("expected inactive 10080m, got %q", param.Inactive)
+			t.Fatalf("expected legacy inactive 10080m, got %q", param.Inactive)
 		}
 		if param.MaxSize != "4096m" {
-			t.Fatalf("expected maxSize 4096m, got %q", param.MaxSize)
+			t.Fatalf("expected legacy maxSize 4096m, got %q", param.MaxSize)
 		}
 		if gotRegion := param.NodeSelector["region"]; gotRegion != "fra1" {
 			t.Fatalf("expected nodeSelector.region fra1, got %q", gotRegion)
@@ -384,8 +396,11 @@ func TestNewMux(t *testing.T) {
 		if secondParam.CacheName != "nvme" {
 			t.Fatalf("expected cacheName nvme, got %q", secondParam.CacheName)
 		}
+		if secondParam.Metadata["path"] != "/var/cache/nvme" {
+			t.Fatalf("expected path /var/cache/nvme, got %q", secondParam.Metadata["path"])
+		}
 		if secondParam.Path != "/var/cache/nvme" {
-			t.Fatalf("expected path /var/cache/nvme, got %q", secondParam.Path)
+			t.Fatalf("expected legacy path /var/cache/nvme, got %q", secondParam.Path)
 		}
 	})
 

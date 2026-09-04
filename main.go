@@ -35,12 +35,15 @@ type RequestPayload struct {
 }
 
 type DeploymentPayload struct {
-	CacheName    string            `json:"cacheName"`
-	Flavor       string            `json:"flavor"`
-	Path         string            `json:"path"`
-	KeysZone     string            `json:"keysZone"`
-	Inactive     string            `json:"inactive"`
-	MaxSize      string            `json:"maxSize"`
+	CacheName string            `json:"cacheName"`
+	Flavor    string            `json:"flavor"`
+	Metadata  map[string]string `json:"metadata"`
+	// Deprecated: kept during the transition to Metadata, will be removed once consumers migrate.
+	Path     string `json:"path"`
+	KeysZone string `json:"keysZone"`
+	Inactive string `json:"inactive"`
+	MaxSize  string `json:"maxSize"`
+
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 }
 
@@ -61,17 +64,33 @@ type ParameterTypes struct {
 	Resource  string `json:"resource"`
 }
 
+// buildCacheMetadata prefers the generic Metadata map, falling back to the deprecated CacheConfig fields.
+func buildCacheMetadata(ng infrastructurev1alpha1.NodeGroupSpec) map[string]string {
+	if len(ng.Metadata) > 0 {
+		return ng.Metadata
+	}
+
+	return map[string]string{
+		"path":     ng.CacheConfig.Path,
+		"keysZone": ng.CacheConfig.KeysZone,
+		"inactive": ng.CacheConfig.Inactive,
+		"maxSize":  ng.CacheConfig.MaxSize,
+	}
+}
+
 func buildDeploymentPayloads(location *infrastructurev1alpha1.Location) []DeploymentPayload {
 	responseParams := make([]DeploymentPayload, 0, len(location.Spec.NodeGroups))
 
 	for _, ng := range location.Spec.NodeGroups {
+		metadata := buildCacheMetadata(ng)
 		responseParams = append(responseParams, DeploymentPayload{
 			CacheName:    ng.Name,
 			Flavor:       ng.Flavor,
-			Path:         ng.CacheConfig.Path,
-			KeysZone:     ng.CacheConfig.KeysZone,
-			Inactive:     ng.CacheConfig.Inactive,
-			MaxSize:      ng.CacheConfig.MaxSize,
+			Metadata:     metadata,
+			Path:         metadata["path"],
+			KeysZone:     metadata["keysZone"],
+			Inactive:     metadata["inactive"],
+			MaxSize:      metadata["maxSize"],
 			NodeSelector: ng.NodeSelector,
 		})
 	}
