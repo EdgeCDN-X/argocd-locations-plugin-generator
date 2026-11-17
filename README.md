@@ -36,7 +36,6 @@ Example response:
     "parameters": [
       {
         "cacheName": "ssd",
-        "flavor": "cache",
         "path": "/var/cache/ssd",
         "keysZone": "100m",
         "inactive": "10080m",
@@ -82,54 +81,6 @@ Example response:
       },
       {
         "ingressClassName": "nvme"
-      }
-    ]
-  }
-}
-```
-
-## Probe resource
-
-Set `resource` to `Probe` to generate flat probe targets for all node group nodes.
-
-```bash
-curl -X POST http://localhost:8080/api/v1/getparams.execute \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-        "input": {
-          "parameters": {
-            "namespace": "argocd",
-            "name": "fra1-c1-v2",
-            "resource": "Probe"
-          }
-        }
-      }' | jq
-```
-
-Example response:
-
-```json
-{
-  "output": {
-    "parameters": [
-      {
-        "nodegroupName": "ssd",
-        "flavor": "cache",
-        "nodeName": "fra1-c1-n1",
-        "address": "74.220.29.158/healthz"
-      },
-      {
-        "nodegroupName": "ssd",
-        "flavor": "cache",
-        "nodeName": "fra1-c1-n1",
-        "address": "2600:3c03::f03c:95ff:fe00:1/healthz"
-      },
-      {
-        "nodegroupName": "nvme",
-        "flavor": "cache",
-        "nodeName": "fra1-c1-n2",
-        "address": "74.220.29.159/healthz"
       }
     ]
   }

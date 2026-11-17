@@ -35,27 +35,14 @@ type RequestPayload struct {
 }
 
 type DeploymentPayload struct {
-	CacheName string            `json:"cacheName"`
-	Flavor    string            `json:"flavor"`
-	Metadata  map[string]string `json:"metadata"`
-	// Deprecated: kept during the transition to Metadata, will be removed once consumers migrate.
-	Path     string `json:"path"`
-	KeysZone string `json:"keysZone"`
-	Inactive string `json:"inactive"`
-	MaxSize  string `json:"maxSize"`
-
+	GroupName    string            `json:"groupName"`
+	Metadata     map[string]string `json:"metadata"`
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 }
 
 type IngressClassPayload struct {
-	IngressClassName string `json:"ingressClassName"`
-}
-
-type ProbePayload struct {
-	NodeGroupName string `json:"nodegroupName"`
-	Flavor        string `json:"flavor,omitempty"`
-	NodeName      string `json:"nodeName"`
-	Address       string `json:"address"`
+	IngressClassName string            `json:"ingressClassName"`
+	Metadata         map[string]string `json:"metadata"`
 }
 
 type ParameterTypes struct {
@@ -84,13 +71,8 @@ func buildDeploymentPayloads(location *infrastructurev1alpha1.Location) []Deploy
 	for _, ng := range location.Spec.NodeGroups {
 		metadata := buildCacheMetadata(ng)
 		responseParams = append(responseParams, DeploymentPayload{
-			CacheName:    ng.Name,
-			Flavor:       ng.Flavor,
+			GroupName:    ng.Name,
 			Metadata:     metadata,
-			Path:         metadata["path"],
-			KeysZone:     metadata["keysZone"],
-			Inactive:     metadata["inactive"],
-			MaxSize:      metadata["maxSize"],
 			NodeSelector: ng.NodeSelector,
 		})
 	}
@@ -108,34 +90,6 @@ func buildIngressClassPayloads(location *infrastructurev1alpha1.Location) []Ingr
 		responseParams = append(responseParams, IngressClassPayload{
 			IngressClassName: ng.Name,
 		})
-	}
-
-	return responseParams
-}
-
-func buildProbePayloads(location *infrastructurev1alpha1.Location) []ProbePayload {
-	responseParams := []ProbePayload{}
-
-	for _, ng := range location.Spec.NodeGroups {
-		for _, node := range ng.Nodes {
-			if node.Ipv4 != "" {
-				responseParams = append(responseParams, ProbePayload{
-					NodeGroupName: ng.Name,
-					Flavor:        ng.Flavor,
-					NodeName:      node.Name,
-					Address:       node.Ipv4 + "/healthz",
-				})
-			}
-
-			if node.Ipv6 != "" {
-				responseParams = append(responseParams, ProbePayload{
-					NodeGroupName: ng.Name,
-					Flavor:        ng.Flavor,
-					NodeName:      node.Name,
-					Address:       node.Ipv6 + "/healthz",
-				})
-			}
-		}
 	}
 
 	return responseParams
@@ -311,25 +265,6 @@ func newMux(token string, verbose bool, k8sClient dynamic.Interface) *http.Serve
 			responseParams := buildIngressClassPayloads(location)
 
 			o := &output.PluginOutput[[]IngressClassPayload]{
-				Parameters: responseParams,
-			}
-
-			output := o.BuildPluginOutput()
-
-			if verbose {
-				log.Printf("Response output: %+v", output)
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(output)
-			return
-		}
-
-		if reqData.Input.Parameters.Resource == "Probe" {
-
-			responseParams := buildProbePayloads(location)
-
-			o := &output.PluginOutput[[]ProbePayload]{
 				Parameters: responseParams,
 			}
 

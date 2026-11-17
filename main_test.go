@@ -44,8 +44,7 @@ func newFakeK8sClient(t *testing.T) dynamic.Interface {
 		Spec: infrastructurev1alpha1.LocationSpec{
 			NodeGroups: []infrastructurev1alpha1.NodeGroupSpec{
 				{
-					Name:   "ssd",
-					Flavor: "cache",
+					Name: "ssd",
 					Nodes: []infrastructurev1alpha1.NodeSpec{
 						{
 							Name: "fra1-c1-n1",
@@ -62,8 +61,7 @@ func newFakeK8sClient(t *testing.T) dynamic.Interface {
 					NodeSelector: map[string]string{"region": "fra1"},
 				},
 				{
-					Name:   "nvme",
-					Flavor: "cache",
+					Name: "nvme",
 					Nodes: []infrastructurev1alpha1.NodeSpec{
 						{
 							Name: "fra1-c1-n2",
@@ -102,6 +100,81 @@ func newEmptyFakeK8sClient(t *testing.T) dynamic.Interface {
 	}
 
 	return dynamicfake.NewSimpleDynamicClient(scheme)
+}
+
+func authHeader(token string) string {
+	return "Bearer " + token
+}
+
+func TestBuildCacheMetadata(t *testing.T) {
+	t.Run("prefers generic metadata map", func(t *testing.T) {
+		ng := infrastructurev1alpha1.NodeGroupSpec{
+			Name: "ssd",
+			Metadata: map[string]string{
+				"path":     "/var/cache/ssd",
+				"keysZone": "100m",
+				"inactive": "10080m",
+				"maxSize":  "4096m",
+			},
+			CacheConfig: infrastructurev1alpha1.CacheConfigSpec{
+				Path:     "/var/cache/legacy",
+				KeysZone: "10m",
+				Inactive: "60m",
+				MaxSize:  "128m",
+			},
+		}
+
+		got := buildCacheMetadata(ng)
+		if got["path"] != "/var/cache/ssd" {
+			t.Fatalf("expected generic metadata path to win, got %q", got["path"])
+		}
+		if got["keysZone"] != "100m" {
+			t.Fatalf("expected generic metadata keysZone to win, got %q", got["keysZone"])
+		}
+	})
+
+	t.Run("falls back to cache config fields", func(t *testing.T) {
+		ng := infrastructurev1alpha1.NodeGroupSpec{
+			Name: "nvme",
+			CacheConfig: infrastructurev1alpha1.CacheConfigSpec{
+				Path:     "/var/cache/nvme",
+				KeysZone: "200m",
+				Inactive: "20160m",
+				MaxSize:  "8192m",
+			},
+		}
+
+		got := buildCacheMetadata(ng)
+		if got["path"] != "/var/cache/nvme" {
+			t.Fatalf("expected cache config path fallback, got %q", got["path"])
+		}
+		if got["maxSize"] != "8192m" {
+			t.Fatalf("expected cache config maxSize fallback, got %q", got["maxSize"])
+		}
+	})
+}
+
+func TestBuildIngressClassPayloads(t *testing.T) {
+	location := &infrastructurev1alpha1.Location{
+		Spec: infrastructurev1alpha1.LocationSpec{
+			NodeGroups: []infrastructurev1alpha1.NodeGroupSpec{
+				{Name: "ssd"},
+				{Name: "nvme"},
+				{Name: "ssd"},
+			},
+		},
+	}
+
+	got := buildIngressClassPayloads(location)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 unique ingress classes, got %d", len(got))
+	}
+	if got[0].IngressClassName != "ssd" {
+		t.Fatalf("expected first ingress class name ssd, got %q", got[0].IngressClassName)
+	}
+	if got[1].IngressClassName != "nvme" {
+		t.Fatalf("expected second ingress class name nvme, got %q", got[1].IngressClassName)
+	}
 }
 
 func TestGetEnvOrDefault(t *testing.T) {
@@ -253,7 +326,7 @@ func TestNewMux(t *testing.T) {
 
 	t.Run("rejects non-post method", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/getparams.execute", nil)
-		req.Header.Set("Authorization", "Bearer secret-token")
+		req.Header.Set("Authorization", authHeader("wrong-token"))
 		rr := httptest.NewRecorder()
 
 		mux.ServeHTTP(rr, req)
@@ -265,7 +338,7 @@ func TestNewMux(t *testing.T) {
 
 	t.Run("rejects invalid token", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/getparams.execute", strings.NewReader(`{"input":{"parameters":{"namespace":"argocd","name":"fra1-c1"}}}`))
-		req.Header.Set("Authorization", "Bearer wrong")
+		req.Header.Set("Authorization", authHeader("wrong-token"))
 		rr := httptest.NewRecorder()
 
 		mux.ServeHTTP(rr, req)
@@ -277,7 +350,7 @@ func TestNewMux(t *testing.T) {
 
 	t.Run("rejects invalid json", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/getparams.execute", strings.NewReader(`{"input":`))
-		req.Header.Set("Authorization", "Bearer secret-token")
+		req.Header.Set("Authorization", authHeader("secret-token"))
 		rr := httptest.NewRecorder()
 
 		mux.ServeHTTP(rr, req)
@@ -289,7 +362,7 @@ func TestNewMux(t *testing.T) {
 
 	t.Run("rejects missing input parameters", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/getparams.execute", strings.NewReader(`{"input":{}}`))
-		req.Header.Set("Authorization", "Bearer secret-token")
+		req.Header.Set("Authorization", authHeader("secret-token"))
 		rr := httptest.NewRecorder()
 
 		mux.ServeHTTP(rr, req)
@@ -301,7 +374,7 @@ func TestNewMux(t *testing.T) {
 
 	t.Run("returns error when kubernetes client is unavailable", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/getparams.execute", strings.NewReader(`{"input":{"parameters":{"namespace":"argocd","name":"fra1-c1"}}}`))
-		req.Header.Set("Authorization", "Bearer secret-token")
+		req.Header.Set("Authorization", authHeader("secret-token"))
 		rr := httptest.NewRecorder()
 
 		mux.ServeHTTP(rr, req)
@@ -320,7 +393,7 @@ func TestNewMux(t *testing.T) {
 		fakeMux := newMux("secret-token", false, fakeClient)
 
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/getparams.execute", strings.NewReader(`{"input":{"parameters":{"namespace":"argocd","name":"fra1-c1"}}}`))
-		req.Header.Set("Authorization", "Bearer secret-token")
+		req.Header.Set("Authorization", authHeader("secret-token"))
 		rr := httptest.NewRecorder()
 
 		fakeMux.ServeHTTP(rr, req)
@@ -339,7 +412,7 @@ func TestNewMux(t *testing.T) {
 		fakeMux := newMux("secret-token", false, fakeClient)
 
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/getparams.execute", strings.NewReader(`{"input":{"parameters":{"namespace":"argocd","name":"fra1-c1"}}}`))
-		req.Header.Set("Authorization", "Bearer secret-token")
+		req.Header.Set("Authorization", authHeader("secret-token"))
 		rr := httptest.NewRecorder()
 
 		fakeMux.ServeHTTP(rr, req)
@@ -358,12 +431,6 @@ func TestNewMux(t *testing.T) {
 		}
 
 		param := got.Output.Parameters[0]
-		if param.CacheName != "ssd" {
-			t.Fatalf("expected cacheName ssd, got %q", param.CacheName)
-		}
-		if param.Flavor != "cache" {
-			t.Fatalf("expected flavor cache, got %q", param.Flavor)
-		}
 		if param.Metadata["path"] != "/var/cache/ssd" {
 			t.Fatalf("expected path /var/cache/ssd, got %q", param.Metadata["path"])
 		}
@@ -376,31 +443,13 @@ func TestNewMux(t *testing.T) {
 		if param.Metadata["maxSize"] != "4096m" {
 			t.Fatalf("expected maxSize 4096m, got %q", param.Metadata["maxSize"])
 		}
-		if param.Path != "/var/cache/ssd" {
-			t.Fatalf("expected legacy path /var/cache/ssd, got %q", param.Path)
-		}
-		if param.KeysZone != "100m" {
-			t.Fatalf("expected legacy keysZone 100m, got %q", param.KeysZone)
-		}
-		if param.Inactive != "10080m" {
-			t.Fatalf("expected legacy inactive 10080m, got %q", param.Inactive)
-		}
-		if param.MaxSize != "4096m" {
-			t.Fatalf("expected legacy maxSize 4096m, got %q", param.MaxSize)
-		}
 		if gotRegion := param.NodeSelector["region"]; gotRegion != "fra1" {
 			t.Fatalf("expected nodeSelector.region fra1, got %q", gotRegion)
 		}
 
 		secondParam := got.Output.Parameters[1]
-		if secondParam.CacheName != "nvme" {
-			t.Fatalf("expected cacheName nvme, got %q", secondParam.CacheName)
-		}
 		if secondParam.Metadata["path"] != "/var/cache/nvme" {
 			t.Fatalf("expected path /var/cache/nvme, got %q", secondParam.Metadata["path"])
-		}
-		if secondParam.Path != "/var/cache/nvme" {
-			t.Fatalf("expected legacy path /var/cache/nvme, got %q", secondParam.Path)
 		}
 	})
 
@@ -409,7 +458,7 @@ func TestNewMux(t *testing.T) {
 		fakeMux := newMux("secret-token", false, fakeClient)
 
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/getparams.execute", strings.NewReader(`{"input":{"parameters":{"namespace":"argocd","name":"fra1-c1","resource":"IngressClass"}}}`))
-		req.Header.Set("Authorization", "Bearer secret-token")
+		req.Header.Set("Authorization", authHeader("secret-token"))
 		rr := httptest.NewRecorder()
 
 		fakeMux.ServeHTTP(rr, req)
@@ -435,48 +484,12 @@ func TestNewMux(t *testing.T) {
 		}
 	})
 
-	t.Run("returns probe configurations when resource is Probe", func(t *testing.T) {
-		fakeClient := newFakeK8sClient(t)
-		fakeMux := newMux("secret-token", false, fakeClient)
-
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/getparams.execute", strings.NewReader(`{"input":{"parameters":{"namespace":"argocd","name":"fra1-c1","resource":"Probe"}}}`))
-		req.Header.Set("Authorization", "Bearer secret-token")
-		rr := httptest.NewRecorder()
-
-		fakeMux.ServeHTTP(rr, req)
-
-		if rr.Code != http.StatusOK {
-			t.Fatalf("expected %d, got %d", http.StatusOK, rr.Code)
-		}
-
-		var got output.ResponsePayload[[]ProbePayload]
-		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
-			t.Fatalf("failed to parse response: %v", err)
-		}
-
-		if len(got.Output.Parameters) != 3 {
-			t.Fatalf("expected 3 probe configs, got %d", len(got.Output.Parameters))
-		}
-
-		expected := []ProbePayload{
-			{NodeGroupName: "ssd", Flavor: "cache", NodeName: "fra1-c1-n1", Address: "74.220.29.158/healthz"},
-			{NodeGroupName: "ssd", Flavor: "cache", NodeName: "fra1-c1-n1", Address: "2600:3c03::f03c:95ff:fe00:1/healthz"},
-			{NodeGroupName: "nvme", Flavor: "cache", NodeName: "fra1-c1-n2", Address: "74.220.29.159/healthz"},
-		}
-
-		for index, want := range expected {
-			if got.Output.Parameters[index] != want {
-				t.Fatalf("unexpected probe payload at index %d: got %+v want %+v", index, got.Output.Parameters[index], want)
-			}
-		}
-	})
-
 	t.Run("returns bad request for unsupported resource type", func(t *testing.T) {
 		fakeClient := newFakeK8sClient(t)
 		fakeMux := newMux("secret-token", false, fakeClient)
 
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/getparams.execute", strings.NewReader(`{"input":{"parameters":{"namespace":"argocd","name":"fra1-c1","resource":"Service"}}}`))
-		req.Header.Set("Authorization", "Bearer secret-token")
+		req.Header.Set("Authorization", authHeader("secret-token"))
 		rr := httptest.NewRecorder()
 
 		fakeMux.ServeHTTP(rr, req)
@@ -490,3 +503,4 @@ func TestNewMux(t *testing.T) {
 		}
 	})
 }
+
