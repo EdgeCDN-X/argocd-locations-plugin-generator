@@ -52,11 +52,11 @@ func newFakeK8sClient(t *testing.T) dynamic.Interface {
 							Ipv6: "2600:3c03::f03c:95ff:fe00:1",
 						},
 					},
-					CacheConfig: infrastructurev1alpha1.CacheConfigSpec{
-						Path:     "/var/cache/ssd",
-						KeysZone: "100m",
-						Inactive: "10080m",
-						MaxSize:  "4096m",
+					Metadata: map[string]string{
+						"path":     "/var/cache/ssd",
+						"keysZone": "100m",
+						"inactive": "10080m",
+						"maxSize":  "4096m",
 					},
 					NodeSelector: map[string]string{"region": "fra1"},
 				},
@@ -104,54 +104,6 @@ func newEmptyFakeK8sClient(t *testing.T) dynamic.Interface {
 
 func authHeader(token string) string {
 	return "Bearer " + token
-}
-
-func TestBuildCacheMetadata(t *testing.T) {
-	t.Run("prefers generic metadata map", func(t *testing.T) {
-		ng := infrastructurev1alpha1.NodeGroupSpec{
-			Name: "ssd",
-			Metadata: map[string]string{
-				"path":     "/var/cache/ssd",
-				"keysZone": "100m",
-				"inactive": "10080m",
-				"maxSize":  "4096m",
-			},
-			CacheConfig: infrastructurev1alpha1.CacheConfigSpec{
-				Path:     "/var/cache/legacy",
-				KeysZone: "10m",
-				Inactive: "60m",
-				MaxSize:  "128m",
-			},
-		}
-
-		got := buildCacheMetadata(ng)
-		if got["path"] != "/var/cache/ssd" {
-			t.Fatalf("expected generic metadata path to win, got %q", got["path"])
-		}
-		if got["keysZone"] != "100m" {
-			t.Fatalf("expected generic metadata keysZone to win, got %q", got["keysZone"])
-		}
-	})
-
-	t.Run("falls back to cache config fields", func(t *testing.T) {
-		ng := infrastructurev1alpha1.NodeGroupSpec{
-			Name: "nvme",
-			CacheConfig: infrastructurev1alpha1.CacheConfigSpec{
-				Path:     "/var/cache/nvme",
-				KeysZone: "200m",
-				Inactive: "20160m",
-				MaxSize:  "8192m",
-			},
-		}
-
-		got := buildCacheMetadata(ng)
-		if got["path"] != "/var/cache/nvme" {
-			t.Fatalf("expected cache config path fallback, got %q", got["path"])
-		}
-		if got["maxSize"] != "8192m" {
-			t.Fatalf("expected cache config maxSize fallback, got %q", got["maxSize"])
-		}
-	})
 }
 
 func TestBuildIngressClassPayloads(t *testing.T) {
@@ -503,4 +455,3 @@ func TestNewMux(t *testing.T) {
 		}
 	})
 }
-
