@@ -36,8 +36,10 @@ type RequestPayload struct {
 
 type DeploymentPayload struct {
 	GroupName    string            `json:"groupName"`
+	BaseDomain   string            `json:"baseDomain"`
 	Metadata     map[string]string `json:"metadata"`
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	Host         string            `json:"host,omitempty"`
 }
 
 type IngressClassPayload struct {
@@ -51,29 +53,26 @@ type ParameterTypes struct {
 	Resource  string `json:"resource"`
 }
 
-// buildCacheMetadata prefers the generic Metadata map, falling back to the deprecated CacheConfig fields.
-func buildCacheMetadata(ng infrastructurev1alpha1.NodeGroupSpec) map[string]string {
-	if len(ng.Metadata) > 0 {
-		return ng.Metadata
-	}
-
-	return map[string]string{
-		"path":     ng.CacheConfig.Path,
-		"keysZone": ng.CacheConfig.KeysZone,
-		"inactive": ng.CacheConfig.Inactive,
-		"maxSize":  ng.CacheConfig.MaxSize,
-	}
-}
-
 func buildDeploymentPayloads(location *infrastructurev1alpha1.Location) []DeploymentPayload {
 	responseParams := make([]DeploymentPayload, 0, len(location.Spec.NodeGroups))
 
 	for _, ng := range location.Spec.NodeGroups {
-		metadata := buildCacheMetadata(ng)
+		metadata := ng.Metadata
 		responseParams = append(responseParams, DeploymentPayload{
 			GroupName:    ng.Name,
 			Metadata:     metadata,
+			BaseDomain:   location.Spec.BaseDomain,
 			NodeSelector: ng.NodeSelector,
+			Host: func() string {
+				if targetType, ok := metadata["targetType"]; ok {
+					if targetType == "loadBalancer" {
+						// Return first node name as the host
+						return ng.Nodes[0].Name
+					}
+					return ""
+				}
+				return ""
+			}(),
 		})
 	}
 
@@ -89,6 +88,7 @@ func buildIngressClassPayloads(location *infrastructurev1alpha1.Location) []Ingr
 		}
 		responseParams = append(responseParams, IngressClassPayload{
 			IngressClassName: ng.Name,
+			Metadata:         ng.Metadata,
 		})
 	}
 
