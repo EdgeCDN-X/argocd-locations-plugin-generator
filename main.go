@@ -65,7 +65,7 @@ func buildDeploymentPayloads(location *infrastructurev1alpha1.Location) []Deploy
 			NodeSelector: ng.NodeSelector,
 			Host: func() string {
 				if targetType, ok := metadata["targetType"]; ok {
-					if targetType == "loadBalancer" {
+					if strings.ToLower(targetType) == "loadbalancer" {
 						// Return first node name as the host
 						return ng.Nodes[0].Name
 					}
