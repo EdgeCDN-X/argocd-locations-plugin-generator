@@ -3,7 +3,7 @@ module github.com/EdgeCDN-X/argocd-locations-plugin-generator
 go 1.26.0
 
 require (
-	github.com/EdgeCDN-X/edgecdnx-controller v1.4.1-0.20261118222034-756ea702d06f
+	github.com/EdgeCDN-X/edgecdnx-controller v1.5.0
 	k8s.io/apimachinery v0.36.1
 	k8s.io/client-go v0.36.1
 )
